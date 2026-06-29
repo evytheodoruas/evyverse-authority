@@ -1,0 +1,53 @@
+{
+  "laneId": "authority-artifact-write.v1",
+  "laneType": "github:authority-artifact-write",
+  "providerAlias": "github",
+  "surfacePattern": "evyverse-authority/artifacts/*",
+  "bootstrapable": false,
+  "receipt": {
+    "kind": "github-actions-run",
+    "repository": "evytheodoruas/evyverse-authority",
+    "workflow": "aos-authority-artifact-write",
+    "environment": "root-authority",
+    "records": [
+      "provider record requesting the artifact write",
+      "root-authority deployment approval",
+      "sigstore bundle for the artifact",
+      "published commit sha"
+    ]
+  },
+  "readback": {
+    "commands": [
+      "gh api repos/evytheodoruas/evyverse-authority/environments/root-authority",
+      "gh api repos/evytheodoruas/evyverse-authority/actions/runs/<run_id>",
+      "gh api repos/evytheodoruas/evyverse-authority/contents/<artifact_path>?ref=main",
+      "cosign verify-blob --bundle <artifact>.sigstore.json <artifact>"
+    ],
+    "mustShow": [
+      "required_reviewers protection contains evytheodoruas",
+      "artifact and sigstore bundle exist on the authority ref",
+      "bundle identity matches the authority-artifact workflow"
+    ]
+  },
+  "redaction": {
+    "publicRepository": true,
+    "rules": [
+      "authority artifacts are public by design",
+      "artifact payloads must contain no raw credentials, private keys, tokens, cookies, refresh token values, or personal secrets",
+      "provider records may link to private context but may not embed private material"
+    ],
+    "denyPatterns": [
+      "gh[pousr]_[A-Za-z0-9_]{20,}",
+      "github_pat_[A-Za-z0-9_]+",
+      "-----BEGIN .*PRIVATE KEY-----",
+      "AKIA[0-9A-Z]{16}",
+      "password\\s*[:=]",
+      "secret\\s*[:=]",
+      "token\\s*[:=]"
+    ]
+  },
+  "recovery": {
+    "posture": "revert-artifact",
+    "command": "publish a signed revert artifact through the same root-authority workflow; never rewrite protected history"
+  }
+}

@@ -1,0 +1,96 @@
+# Authority repo verifier. Phase 0 keeps this intentionally small and dependency-free:
+# - public redaction scan
+# - all JSON parses
+# - root doctrine shape exists
+# - only the root-authority-gated artifact writer may have contents:write
+
+name: aos-semantic-verifiers
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  aos-semantic-verifiers:
+    name: aos-semantic-verifiers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authority semantic verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const failures = [];
+          const deny = [
+            /gh[pousr]_[A-Za-z0-9_]{20,}/,
+            /github_pat_[A-Za-z0-9_]+/,
+            /-----BEGIN .*PRIVATE KEY-----/,
+            /AKIA[0-9A-Z]{16}/,
+            /password\s*[:=]/i,
+            /secret\s*[:=]/i,
+            /token\s*[:=]/i
+          ];
+
+          function walk(dir) {
+            if (!fs.existsSync(dir)) return [];
+            return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+              const full = path.join(dir, entry.name);
+              if (entry.isDirectory()) return walk(full);
+              return [full];
+            });
+          }
+
+          for (const file of walk('.').filter((name) => !name.startsWith('.git' + path.sep))) {
+            let text = '';
+            try {
+              text = fs.readFileSync(file, 'utf8');
+            } catch {
+              continue;
+            }
+            for (const pattern of deny) {
+              if (pattern.test(text)) failures.push(`${file}: denied private-material pattern`);
+            }
+            if (file.endsWith('.json')) {
+              try {
+                JSON.parse(text);
+              } catch (error) {
+                failures.push(`${file}: invalid JSON: ${error.message}`);
+              }
+            }
+          }
+
+          const rootDoctrine = JSON.parse(fs.readFileSync('root-doctrine.json', 'utf8'));
+          if (rootDoctrine.schema !== 'agent_os.root_doctrine.v1') {
+            failures.push('root-doctrine.json: schema must be agent_os.root_doctrine.v1');
+          }
+
+          const workflows = walk('.github/workflows').filter((file) => /\.ya?ml$/.test(file));
+          for (const file of workflows) {
+            const text = fs.readFileSync(file, 'utf8');
+            const isWriter = path.basename(file) === 'aos-authority-artifact-write.yml';
+            if (/contents:\s*write/.test(text) && !isWriter) {
+              failures.push(`${file}: only aos-authority-artifact-write.yml may request contents: write`);
+            }
+          }
+
+          const writer = '.github/workflows/aos-authority-artifact-write.yml';
+          if (fs.existsSync(writer)) {
+            const text = fs.readFileSync(writer, 'utf8');
+            if (!/environment:\s*root-authority/.test(text)) failures.push(`${writer}: missing root-authority environment`);
+            if (!/id-token:\s*write/.test(text)) failures.push(`${writer}: missing OIDC id-token permission`);
+            if (!/cosign sign-blob/.test(text)) failures.push(`${writer}: missing keyless signing step`);
+          }
+
+          if (failures.length > 0) {
+            console.error(failures.join('\n'));
+            process.exit(1);
+          }
+          console.log('authority semantic verifier passed');
+          NODE
