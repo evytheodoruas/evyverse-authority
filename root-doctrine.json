@@ -1,16 +1,19 @@
 {
   "schema": "agent_os.root_doctrine.v1",
-  "version": "phase-0-initial",
+  "version": "phase-0-authority-artifact-write",
   "postures": {
     "autonomousEligible": [
       "lane-bootstrap",
       "repo-write",
       "provider-write",
-      "runtime-deploy-wrapper"
+      "runtime-deploy-wrapper",
+      "local-auth-readback"
     ],
     "oneTimeGrant": [
       "business-write",
-      "runtime-deploy-live"
+      "runtime-deploy-live",
+      "local-auth-repair",
+      "authority-artifact-write"
     ],
     "rootBlocked": [
       "credential",
