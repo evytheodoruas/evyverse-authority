@@ -5,26 +5,32 @@
   "surfacePattern": "evyverse-authority/artifacts/*",
   "bootstrapable": false,
   "receipt": {
-    "kind": "github-actions-run",
+    "kind": "github-pull-request",
     "repository": "evytheodoruas/evyverse-authority",
     "workflow": "aos-authority-artifact-write",
-    "environment": "root-authority",
+    "grantRef": "grants/authority-artifact-write.v1.json",
+    "grantIssuedBy": "root-authority",
     "records": [
       "provider record requesting the artifact write",
-      "root-authority deployment approval",
+      "signed authority-artifact-write grant reference",
+      "artifact branch",
+      "artifact PR URL",
+      "aos-semantic-verifiers check result",
       "sigstore bundle for the artifact",
       "published commit sha"
     ]
   },
   "readback": {
     "commands": [
-      "gh api repos/evytheodoruas/evyverse-authority/environments/root-authority",
       "gh api repos/evytheodoruas/evyverse-authority/actions/runs/<run_id>",
+      "gh api repos/evytheodoruas/evyverse-authority/contents/grants/authority-artifact-write.v1.json?ref=main",
+      "gh pr view <artifact_pr> --repo evytheodoruas/evyverse-authority --json autoMergeRequest,mergeStateStatus,statusCheckRollup,mergedAt",
       "gh api repos/evytheodoruas/evyverse-authority/contents/<artifact_path>?ref=main",
       "cosign verify-blob --bundle <artifact>.sigstore.json <artifact>"
     ],
     "mustShow": [
-      "required_reviewers protection contains evytheodoruas",
+      "signed authority-artifact-write grant is present on the protected authority ref",
+      "artifact PR was verifier-gated and merged by provider auto-merge",
       "artifact and sigstore bundle exist on the authority ref",
       "bundle identity matches the authority-artifact workflow"
     ]
@@ -48,6 +54,6 @@
   },
   "recovery": {
     "posture": "revert-artifact",
-    "command": "publish a signed revert artifact through the same root-authority workflow; never rewrite protected history"
+    "command": "publish a signed revert artifact through the same authority-artifact workflow; never rewrite protected history"
   }
 }

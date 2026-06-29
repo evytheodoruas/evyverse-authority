@@ -2,7 +2,8 @@
 # - public redaction scan
 # - all JSON parses
 # - root doctrine shape exists
-# - only the root-authority-gated artifact writer may have contents:write
+# - only the signed-grant artifact writer may have contents:write
+# - routine artifact writes publish by branch PR + auto-merge, not root-authority approval or direct push
 
 name: aos-semantic-verifiers
 on:
@@ -51,6 +52,8 @@ jobs:
             const base = path.basename(file);
             const trimmed = line.trim();
             if (base === 'aos-authority-artifact-write.yml' && trimmed.startsWith('if grep -E -i ')) return true;
+            if (base === 'aos-authority-artifact-write.yml' && /^GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}$/.test(trimmed)) return true;
+            if (base === 'aos-semantic-verifiers.yml' && trimmed.includes('GH_TOKEN:') && (trimmed.includes('github\\.token') || trimmed.includes('github\\\\.token'))) return true;
             if (base === 'aos-semantic-verifiers.yml' && /^\/.*\/,?$/.test(trimmed)) return true;
             if (file.startsWith('lanes' + path.sep) && /(\[A-Za-z|\\s\*|BEGIN \.\*PRIVATE KEY|\[0-9A-Z\])/.test(trimmed)) return true;
             return false;
@@ -96,9 +99,15 @@ jobs:
           const writer = '.github/workflows/aos-authority-artifact-write.yml';
           if (fs.existsSync(writer)) {
             const text = fs.readFileSync(writer, 'utf8');
-            if (!/environment:\s*root-authority/.test(text)) failures.push(`${writer}: missing root-authority environment`);
+            if (/^\s*environment:\s*root-authority\s*$/m.test(text)) failures.push(`${writer}: routine writer must not require root-authority`);
+            if (!/grant_ref:/.test(text)) failures.push(`${writer}: missing signed grant_ref input`);
             if (!/id-token:\s*write/.test(text)) failures.push(`${writer}: missing OIDC id-token permission`);
             if (!/cosign sign-blob/.test(text)) failures.push(`${writer}: missing keyless signing step`);
+            if (!/pull-requests:\s*write/.test(text)) failures.push(`${writer}: missing branch PR publication permission`);
+            if (!/gh pr create/.test(text)) failures.push(`${writer}: missing branch PR publication`);
+            if (!/gh pr merge --auto/.test(text)) failures.push(`${writer}: missing auto-merge request`);
+            if (!/git push origin HEAD:refs\/heads\/aos\/authority-artifacts\//.test(text)) failures.push(`${writer}: missing authority artifact branch push`);
+            if (/git push origin HEAD:main/.test(text)) failures.push(`${writer}: forbidden direct main push`);
           }
 
           if (failures.length > 0) {
