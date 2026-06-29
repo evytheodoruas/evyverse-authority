@@ -2,7 +2,7 @@
 # - public redaction scan
 # - all JSON parses
 # - root doctrine shape exists
-# - only the signed-grant artifact writer may have contents:write
+# - only the signed-grant artifact writer and root-approved grant issuer may have contents:write
 # - routine artifact writes publish by branch PR + auto-merge, not root-authority approval or direct push
 
 name: aos-semantic-verifiers
@@ -52,7 +52,8 @@ jobs:
             const base = path.basename(file);
             const trimmed = line.trim();
             if (base === 'aos-authority-artifact-write.yml' && trimmed.startsWith('if grep -E -i ')) return true;
-            if (base === 'aos-authority-artifact-write.yml' && /^GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}$/.test(trimmed)) return true;
+            if (base === 'aos-grant-issuance.yml' && trimmed.startsWith('if grep -E -i ')) return true;
+            if (['aos-authority-artifact-write.yml', 'aos-grant-issuance.yml'].includes(base) && /^GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}$/.test(trimmed)) return true;
             if (base === 'aos-semantic-verifiers.yml' && trimmed.includes('GH_TOKEN:') && (trimmed.includes('github\\.token') || trimmed.includes('github\\\\.token'))) return true;
             if (base === 'aos-semantic-verifiers.yml' && /^\/.*\/,?$/.test(trimmed)) return true;
             if (file.startsWith('lanes' + path.sep) && /(\[A-Za-z|\\s\*|BEGIN \.\*PRIVATE KEY|\[0-9A-Z\])/.test(trimmed)) return true;
@@ -88,11 +89,11 @@ jobs:
           }
 
           const workflows = walk('.github/workflows').filter((file) => /\.ya?ml$/.test(file));
+          const contentsWriteAllowed = new Set(['aos-authority-artifact-write.yml', 'aos-grant-issuance.yml']);
           for (const file of workflows) {
             const text = fs.readFileSync(file, 'utf8');
-            const isWriter = path.basename(file) === 'aos-authority-artifact-write.yml';
-            if (/^\s*contents:\s*write\s*$/m.test(text) && !isWriter) {
-              failures.push(`${file}: only aos-authority-artifact-write.yml may request contents: write`);
+            if (/^\s*contents:\s*write\s*$/m.test(text) && !contentsWriteAllowed.has(path.basename(file))) {
+              failures.push(`${file}: only authority artifact/grant workflows may request contents: write`);
             }
           }
 
@@ -108,6 +109,20 @@ jobs:
             if (!/gh pr merge --auto/.test(text)) failures.push(`${writer}: missing auto-merge request`);
             if (!/git push origin HEAD:refs\/heads\/aos\/authority-artifacts\//.test(text)) failures.push(`${writer}: missing authority artifact branch push`);
             if (/git push origin HEAD:main/.test(text)) failures.push(`${writer}: forbidden direct main push`);
+          }
+
+          const grantIssuer = '.github/workflows/aos-grant-issuance.yml';
+          if (fs.existsSync(grantIssuer)) {
+            const text = fs.readFileSync(grantIssuer, 'utf8');
+            if (!/^\s*environment:\s*root-authority\s*$/m.test(text)) failures.push(`${grantIssuer}: grant issuance must require root-authority`);
+            if (!/id-token:\s*write/.test(text)) failures.push(`${grantIssuer}: missing OIDC id-token permission`);
+            if (!/pull-requests:\s*write/.test(text)) failures.push(`${grantIssuer}: missing grant PR publication permission`);
+            if (!/cosign sign-blob/.test(text)) failures.push(`${grantIssuer}: missing keyless grant signing step`);
+            if (!/gh pr create/.test(text)) failures.push(`${grantIssuer}: grant issuance must publish by branch PR`);
+            if (!/gh pr merge --auto/.test(text)) failures.push(`${grantIssuer}: missing grant auto-merge request`);
+            if (!/git push origin HEAD:refs\/heads\/aos\/grants\//.test(text)) failures.push(`${grantIssuer}: missing grant branch push`);
+            if (/git push(?! origin HEAD:refs\/heads\/aos\/grants\/)/.test(text)) failures.push(`${grantIssuer}: forbidden direct grant push`);
+            if (/git commit -S/.test(text)) failures.push(`${grantIssuer}: forbidden signed commit requirement`);
           }
 
           if (failures.length > 0) {

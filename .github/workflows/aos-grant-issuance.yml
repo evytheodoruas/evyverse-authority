@@ -1,0 +1,142 @@
+# One-time grant issuance, keyless-signed. The native environment approval (root-authority,
+# required reviewer = Evy) is the human approval that mints or renews a standing grant.
+# The grant is published by PR + aos-semantic-verifiers + auto-merge; this workflow never
+# direct-pushes to main and never requires local signing-key custody.
+
+name: aos-grant-issuance
+on:
+  workflow_dispatch:
+    inputs:
+      grant_id:
+        description: "Grant id, e.g. authority-artifact-write.v1"
+        required: true
+      effect_kinds:
+        description: "Comma-separated effectKinds, e.g. authority-artifact-write"
+        required: true
+      scope_prefix:
+        description: "Surface prefix the grant covers"
+        required: true
+      proof_ref:
+        description: "Provider record URL proving request, dry-run, redaction, and recovery"
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  issue-grant:
+    runs-on: ubuntu-latest
+    environment: root-authority
+    steps:
+      - name: Checkout authority ref
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Build grant artifact
+        shell: bash
+        env:
+          GRANT_ID: ${{ inputs.grant_id }}
+          EFFECT_KINDS: ${{ inputs.effect_kinds }}
+          SCOPE_PREFIX: ${{ inputs.scope_prefix }}
+          PROOF_REF: ${{ inputs.proof_ref }}
+          WORKFLOW_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const grantId = process.env.GRANT_ID ?? '';
+          if (!/^[A-Za-z0-9._-]+$/.test(grantId)) {
+            throw new Error('grant_id must contain only letters, numbers, dot, underscore, or hyphen');
+          }
+
+          const effectKinds = (process.env.EFFECT_KINDS ?? '')
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+          if (effectKinds.length === 0) throw new Error('at least one effect kind is required');
+
+          const grant = {
+            schema: 'agent_os.grant.v1',
+            grantId,
+            effectKinds,
+            scopePrefix: process.env.SCOPE_PREFIX ?? '',
+            executionMode: 'unattended',
+            provenance: {
+              verifiedVia: 'keyless-oidc',
+              approval: process.env.WORKFLOW_RUN ?? '',
+              proof: process.env.PROOF_REF ?? ''
+            }
+          };
+
+          fs.mkdirSync('signed-grant', { recursive: true });
+          fs.writeFileSync('signed-grant/grant.json', `${JSON.stringify(grant, null, 2)}\n`);
+          NODE
+          jq -e . signed-grant/grant.json >/dev/null
+
+      - name: Public redaction preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -E -i 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+|-----BEGIN .*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|password[[:space:]]*[:=]|secret[[:space:]]*[:=]|token[[:space:]]*[:=]' signed-grant/grant.json; then
+            echo "grant contains a denied private-material pattern" >&2
+            exit 1
+          fi
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Keyless sign grant
+        shell: bash
+        run: cosign sign-blob --yes signed-grant/grant.json --bundle signed-grant/grant.sigstore.json
+
+      - name: Publish signed grant branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="aos/grants/${{ inputs.grant_id }}-${{ github.run_id }}"
+          git checkout -B "$branch"
+          target="grants/${{ inputs.grant_id }}.json"
+          mkdir -p grants
+          cp signed-grant/grant.json "$target"
+          cp signed-grant/grant.sigstore.json "grants/${{ inputs.grant_id }}.sigstore.json"
+          {
+            echo "providerRecord=${{ inputs.proof_ref }}"
+            echo "workflowRun=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "grantId=${{ inputs.grant_id }}"
+            echo "effectKinds=${{ inputs.effect_kinds }}"
+            echo "scopePrefix=${{ inputs.scope_prefix }}"
+          } > "grants/${{ inputs.grant_id }}.receipt"
+          git config user.name "aos-grant-issuance"
+          git config user.email "aos-grant-issuance@users.noreply.github.com"
+          git add "$target" "grants/${{ inputs.grant_id }}.sigstore.json" "grants/${{ inputs.grant_id }}.receipt"
+          git commit -m "issue signed grant ${{ inputs.grant_id }}"
+          git push origin HEAD:refs/heads/aos/grants/${{ inputs.grant_id }}-${{ github.run_id }}
+          echo "grant_branch=$branch" >> "$GITHUB_ENV"
+
+      - name: Open grant PR and enable auto-merge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > pr-body.md <<'BODY'
+          Provider record: ${{ inputs.proof_ref }}
+
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Grant: ${{ inputs.grant_id }}
+          Effect kinds: ${{ inputs.effect_kinds }}
+          Scope prefix: ${{ inputs.scope_prefix }}
+
+          This PR was generated by the root-authority-gated grant issuance workflow. The grant and sigstore bundle are committed together, and routine use of the grant must verify the artifact signature.
+          BODY
+          pr_url="$(gh pr create \
+            --base main \
+            --head "$grant_branch" \
+            --title "Issue signed grant ${{ inputs.grant_id }}" \
+            --body-file pr-body.md)"
+          gh pr merge --auto --merge "$pr_url"
