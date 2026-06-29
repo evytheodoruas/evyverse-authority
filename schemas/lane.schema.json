@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent_os.lane.v1",
+  "title": "Agent OS Capability Lane",
+  "description": "A reusable bounded execution path. A lane is COMPLETE only when all six required fields are present; incomplete lanes fail closed.",
+  "type": "object",
+  "required": ["laneId", "laneType", "providerAlias", "surfacePattern", "receipt", "readback", "redaction", "recovery"],
+  "additionalProperties": true,
+  "properties": {
+    "laneId": { "type": "string", "minLength": 1 },
+    "schema": { "type": "string" },
+    "laneType": { "type": "string", "minLength": 1 },
+    "providerAlias": { "type": "string", "minLength": 1 },
+    "surfacePattern": { "type": "string", "minLength": 1, "description": "Exact surface or prefix glob, e.g. google/apps-script/*" },
+    "bootstrapable": { "type": "boolean" },
+    "receipt": { "type": "object", "description": "How the lane produces/stores its provider receipt." },
+    "readback": { "type": "object", "description": "How the lane verifies the effect landed." },
+    "redaction": { "type": "object", "description": "What the lane strips before any receipt/state-out." },
+    "recovery": {
+      "type": "object",
+      "required": ["posture", "command"],
+      "properties": { "posture": { "type": "string" }, "command": { "type": "string" } }
+    }
+  }
+}

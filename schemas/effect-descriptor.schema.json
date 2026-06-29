@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent_os.effect_descriptor.v1",
+  "title": "Agent OS Effect Descriptor",
+  "type": "object",
+  "required": ["effectId", "effectKind", "surface", "providerAlias", "reversibility", "bounds"],
+  "additionalProperties": false,
+  "properties": {
+    "effectId": { "type": "string", "minLength": 1 },
+    "effectKind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Categorical. Resolved to a posture by root doctrine. NEVER an authority source on its own."
+    },
+    "surface": { "type": "string", "minLength": 1, "description": "e.g. google/apps-script/<scriptId>/deploy" },
+    "providerAlias": { "type": "string", "minLength": 1, "examples": ["github", "google"] },
+    "reversibility": { "type": "string", "enum": ["reversible", "recoverable", "irreversible"] },
+    "bounds": {
+      "type": "object",
+      "required": ["receipt", "readback", "redaction", "recovery"],
+      "additionalProperties": false,
+      "properties": {
+        "receipt": { "type": "boolean" },
+        "readback": { "type": "boolean" },
+        "redaction": { "type": "boolean" },
+        "recovery": {
+          "type": "object",
+          "required": ["posture", "command"],
+          "additionalProperties": false,
+          "properties": {
+            "posture": { "type": "string" },
+            "command": { "type": "string" }
+          }
+        }
+      }
+    },
+    "providerClaim": {
+      "type": ["object", "null"],
+      "required": ["type", "ref"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "ref": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

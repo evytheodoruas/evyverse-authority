@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent_os.grant.v1",
+  "title": "Agent OS Grant (signed authority capability)",
+  "description": "A capability scoped by (effectKinds x surface prefix). Authority only when delivered as a signature-verified artifact from the authority repo. Granularity = (domain x effectKind), surface-prefix scoped.",
+  "type": "object",
+  "required": ["grantId", "effectKinds", "scopePrefix"],
+  "additionalProperties": true,
+  "properties": {
+    "grantId": { "type": "string", "minLength": 1 },
+    "schema": { "type": "string" },
+    "domain": {
+      "type": "object",
+      "properties": { "kind": { "type": "string" }, "name": { "type": "string" } }
+    },
+    "effectKinds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Use the sentinel 'lane-bootstrap' for the standing grant that authorizes bootstrapping autonomous-eligible lanes."
+    },
+    "scopePrefix": { "type": "string", "description": "Surface prefix the grant covers. Empty string or '*' = all surfaces (use only for lane-bootstrap)." },
+    "executionMode": { "type": "string", "enum": ["attended", "unattended"] },
+    "expiry": { "type": "string", "format": "date-time" },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "signer": { "type": "string" },
+        "verifiedVia": { "type": "string", "examples": ["signed-tag", "keyless-oidc"] },
+        "approval": { "type": "string", "description": "audit-logged approval reference (e.g. environment deployment id)" }
+      }
+    }
+  }
+}

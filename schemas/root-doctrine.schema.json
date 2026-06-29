@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent_os.root_doctrine.v1",
+  "title": "Agent OS Root Doctrine",
+  "description": "The ONLY permanent 'no'. Maps effectKind -> posture. Authority only when delivered as a signature-verified artifact from the authority repo.",
+  "type": "object",
+  "required": ["schema", "version", "postures", "recoverablePostures"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "agent_os.root_doctrine.v1" },
+    "version": { "type": "string", "minLength": 1 },
+    "postures": {
+      "type": "object",
+      "required": ["autonomousEligible", "oneTimeGrant", "rootBlocked"],
+      "additionalProperties": false,
+      "properties": {
+        "autonomousEligible": { "type": "array", "items": { "type": "string" } },
+        "oneTimeGrant": { "type": "array", "items": { "type": "string" } },
+        "rootBlocked": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "recoverablePostures": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Recovery postures that count as recoverable for the boundedness invariant."
+    }
+  }
+}
