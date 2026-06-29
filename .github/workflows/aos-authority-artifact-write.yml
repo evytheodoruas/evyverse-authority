@@ -1,0 +1,107 @@
+# Publishes public authority artifacts only after root-authority environment approval.
+# The workflow signs artifacts keylessly with GitHub OIDC and records the sigstore bundle beside the artifact.
+# The agent never receives signing keys or raw credentials. root-values content remains root-approved by the
+# environment approval and the signed artifact receipt, not by local file location.
+
+name: aos-authority-artifact-write
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_kind:
+        description: "root-doctrine, grant, or lane"
+        required: true
+      source_ref:
+        description: "Branch, tag, or commit containing the candidate artifact"
+        required: true
+      source_path:
+        description: "Path to the candidate JSON artifact at source_ref"
+        required: true
+      target_path:
+        description: "Authority repo target path: root-doctrine.json, grants/*.json, or lanes/*.json"
+        required: true
+      provider_record:
+        description: "GitHub provider record URL proving request, dry-run, and recovery plan"
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish-authority-artifact:
+    runs-on: ubuntu-latest
+    environment: root-authority
+    steps:
+      - name: Checkout candidate artifact
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          path: candidate
+          fetch-depth: 0
+
+      - name: Validate target and artifact class
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.artifact_kind }}:${{ inputs.target_path }}" in
+            root-doctrine:root-doctrine.json) ;;
+            grant:grants/*.json) ;;
+            lane:lanes/*.json) ;;
+            *) echo "target_path is not valid for artifact_kind" >&2; exit 1 ;;
+          esac
+          test -f "candidate/${{ inputs.source_path }}"
+          jq -e . "candidate/${{ inputs.source_path }}" >/dev/null
+
+      - name: Public redaction preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="candidate/${{ inputs.source_path }}"
+          if grep -E -i 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+|-----BEGIN .*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|password[[:space:]]*[:=]|secret[[:space:]]*[:=]|token[[:space:]]*[:=]' "$artifact"; then
+            echo "artifact contains a denied private-material pattern" >&2
+            exit 1
+          fi
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Keyless sign artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signed
+          cp "candidate/${{ inputs.source_path }}" signed/artifact.json
+          cosign sign-blob --yes signed/artifact.json --bundle signed/artifact.sigstore.json
+
+      - name: Checkout authority ref
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: authority
+          fetch-depth: 0
+
+      - name: Publish signed artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="authority/${{ inputs.target_path }}"
+          mkdir -p "$(dirname "$target")"
+          cp signed/artifact.json "$target"
+          cp signed/artifact.sigstore.json "$target.sigstore.json"
+          {
+            echo "providerRecord=${{ inputs.provider_record }}"
+            echo "workflowRun=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "sourceRef=${{ inputs.source_ref }}"
+            echo "sourcePath=${{ inputs.source_path }}"
+          } > "$target.receipt"
+
+      - name: Commit signed authority artifact
+        shell: bash
+        working-directory: authority
+        run: |
+          set -euo pipefail
+          git config user.name "aos-authority-artifact-write"
+          git config user.email "aos-authority-artifact-write@users.noreply.github.com"
+          git add "${{ inputs.target_path }}" "${{ inputs.target_path }}.sigstore.json" "${{ inputs.target_path }}.receipt"
+          git commit -m "publish authority artifact ${{ inputs.target_path }}"
+          git push origin HEAD:main
