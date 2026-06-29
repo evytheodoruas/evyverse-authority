@@ -35,7 +35,7 @@ jobs:
             /AKIA[0-9A-Z]{16}/,
             /password\s*[:=]/i,
             /secret\s*[:=]/i,
-            /token\s*[:=]/i
+            /(?<!id-)token\s*[:=]/i
           ];
 
           function walk(dir) {
@@ -47,6 +47,15 @@ jobs:
             });
           }
 
+          function isPolicyPatternLine(file, line) {
+            const base = path.basename(file);
+            const trimmed = line.trim();
+            if (base === 'aos-authority-artifact-write.yml' && trimmed.startsWith('if grep -E -i ')) return true;
+            if (base === 'aos-semantic-verifiers.yml' && /^\/.*\/,?$/.test(trimmed)) return true;
+            if (file.startsWith('lanes' + path.sep) && /(\[A-Za-z|\\s\*|BEGIN \.\*PRIVATE KEY|\[0-9A-Z\])/.test(trimmed)) return true;
+            return false;
+          }
+
           for (const file of walk('.').filter((name) => !name.startsWith('.git' + path.sep))) {
             let text = '';
             try {
@@ -54,8 +63,12 @@ jobs:
             } catch {
               continue;
             }
-            for (const pattern of deny) {
-              if (pattern.test(text)) failures.push(`${file}: denied private-material pattern`);
+            for (const [index, line] of text.split(/\r?\n/).entries()) {
+              for (const pattern of deny) {
+                if (pattern.test(line) && !isPolicyPatternLine(file, line)) {
+                  failures.push(`${file}:${index + 1}: denied private-material pattern`);
+                }
+              }
             }
             if (file.endsWith('.json')) {
               try {
@@ -75,7 +88,7 @@ jobs:
           for (const file of workflows) {
             const text = fs.readFileSync(file, 'utf8');
             const isWriter = path.basename(file) === 'aos-authority-artifact-write.yml';
-            if (/contents:\s*write/.test(text) && !isWriter) {
+            if (/^\s*contents:\s*write\s*$/m.test(text) && !isWriter) {
               failures.push(`${file}: only aos-authority-artifact-write.yml may request contents: write`);
             }
           }
