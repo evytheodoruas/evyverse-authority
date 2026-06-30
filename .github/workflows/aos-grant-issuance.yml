@@ -21,6 +21,7 @@ on:
         required: true
 
 permissions:
+  actions: write
   contents: write
   id-token: write
   pull-requests: write
@@ -139,4 +140,10 @@ jobs:
             --head "$grant_branch" \
             --title "Issue signed grant ${{ inputs.grant_id }}" \
             --body-file pr-body.md)"
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/actions/workflows/aos-semantic-verifiers.yml/dispatches \
+            --input - <<JSON
+          {"ref": "$grant_branch"}
+          JSON
           gh pr merge --auto --merge "$pr_url"
