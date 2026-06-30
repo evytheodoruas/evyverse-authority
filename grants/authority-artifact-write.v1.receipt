@@ -1,0 +1,5 @@
+providerRecord=https://github.com/evytheodoruas/agent-os/issues/265
+workflowRun=https://github.com/evytheodoruas/evyverse-authority/actions/runs/28411234880
+grantId=authority-artifact-write.v1
+effectKinds=authority-artifact-write
+scopePrefix=evyverse-authority/artifacts/
