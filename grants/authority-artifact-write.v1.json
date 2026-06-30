@@ -1,0 +1,14 @@
+{
+  "schema": "agent_os.grant.v1",
+  "grantId": "authority-artifact-write.v1",
+  "effectKinds": [
+    "authority-artifact-write"
+  ],
+  "scopePrefix": "evyverse-authority/artifacts/",
+  "executionMode": "unattended",
+  "provenance": {
+    "verifiedVia": "keyless-oidc",
+    "approval": "https://github.com/evytheodoruas/evyverse-authority/actions/runs/28410922447",
+    "proof": "https://github.com/evytheodoruas/agent-os/issues/265"
+  }
+}
