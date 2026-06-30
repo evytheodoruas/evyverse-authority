@@ -1,0 +1,14 @@
+{
+  "schema": "agent_os.grant.v1",
+  "grantId": "local-auth-repair.v1",
+  "effectKinds": [
+    "local-auth-repair"
+  ],
+  "scopePrefix": "github/auth/",
+  "executionMode": "unattended",
+  "provenance": {
+    "verifiedVia": "keyless-oidc",
+    "approval": "https://github.com/evytheodoruas/evyverse-authority/actions/runs/28414616611",
+    "proof": "https://github.com/evytheodoruas/agent-os/issues/266"
+  }
+}
