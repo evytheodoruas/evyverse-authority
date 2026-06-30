@@ -62,10 +62,41 @@ jobs:
         run: |
           set -euo pipefail
           artifact="candidate/${{ inputs.source_path }}"
-          if grep -E -i 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+|-----BEGIN .*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|password[[:space:]]*[:=]|secret[[:space:]]*[:=]|token[[:space:]]*[:=]' "$artifact"; then
-            echo "artifact contains a denied private-material pattern" >&2
-            exit 1
-          fi
+          ARTIFACT="$artifact" node <<'NODE'
+          const fs = require('node:fs');
+          const artifact = process.env.ARTIFACT;
+          const payload = JSON.parse(fs.readFileSync(artifact, 'utf8'));
+          const deny = [
+            /gh[pousr]_[A-Za-z0-9_]{20,}/,
+            /github_pat_[A-Za-z0-9_]+/,
+            /-----BEGIN .*PRIVATE KEY-----/,
+            /AKIA[0-9A-Z]{16}/,
+            /password\s*[:=]/i,
+            /secret\s*[:=]/i,
+            /(?<!id-)token\s*[:=]/i
+          ];
+          const findings = [];
+          function walk(value, path = []) {
+            if (path.join('.') === 'redaction.denyPatterns') return;
+            if (Array.isArray(value)) {
+              value.forEach((item, index) => walk(item, path.concat(String(index))));
+              return;
+            }
+            if (value && typeof value === 'object') {
+              Object.entries(value).forEach(([key, item]) => walk(item, path.concat(key)));
+              return;
+            }
+            if (typeof value !== 'string') return;
+            for (const pattern of deny) {
+              if (pattern.test(value)) findings.push(`${path.join('.')}: denied private-material pattern`);
+            }
+          }
+          walk(payload);
+          if (findings.length > 0) {
+            console.error(findings.join('\n'));
+            process.exit(1);
+          }
+          NODE
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3

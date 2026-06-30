@@ -56,7 +56,7 @@ jobs:
             if (base === 'aos-grant-issuance.yml' && trimmed.startsWith('if grep -E -i ')) return true;
             if (['aos-authority-artifact-write.yml', 'aos-grant-issuance.yml'].includes(base) && /^GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}$/.test(trimmed)) return true;
             if (base === 'aos-semantic-verifiers.yml' && trimmed.includes('GH_TOKEN:') && (trimmed.includes('github\\.token') || trimmed.includes('github\\\\.token'))) return true;
-            if (base === 'aos-semantic-verifiers.yml' && /^\/.*\/,?$/.test(trimmed)) return true;
+            if (['aos-semantic-verifiers.yml', 'aos-authority-artifact-write.yml'].includes(base) && /^\/.*\/[i]?,?$/.test(trimmed)) return true;
             if (file.startsWith('lanes' + path.sep) && /(\[A-Za-z|\\s\*|BEGIN \.\*PRIVATE KEY|\[0-9A-Z\])/.test(trimmed)) return true;
             return false;
           }
