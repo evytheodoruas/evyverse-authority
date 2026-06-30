@@ -107,10 +107,15 @@ jobs:
             if (!/cosign sign-blob/.test(text)) failures.push(`${writer}: missing keyless signing step`);
             if (!/actions:\s*write/.test(text)) failures.push(`${writer}: missing explicit verifier dispatch permission`);
             if (!/pull-requests:\s*write/.test(text)) failures.push(`${writer}: missing branch PR publication permission`);
+            if (!/statuses:\s*write/.test(text)) failures.push(`${writer}: missing status publication permission`);
             if (!/gh pr create/.test(text)) failures.push(`${writer}: missing branch PR publication`);
             if (!/gh pr merge --auto/.test(text)) failures.push(`${writer}: missing auto-merge request`);
             if (!/actions\/workflows\/aos-semantic-verifiers\.yml\/dispatches/.test(text)) failures.push(`${writer}: missing explicit verifier dispatch for artifact PR branch`);
             if (!/ref":\s*"\$artifact_branch"/.test(text)) failures.push(`${writer}: verifier dispatch must target artifact branch`);
+            if (!/artifact_sha="\$\(git rev-parse HEAD\)"/.test(text)) failures.push(`${writer}: missing artifact head sha capture`);
+            if (!/check-runs\?check_name=aos-semantic-verifiers/.test(text)) failures.push(`${writer}: missing dispatched verifier polling`);
+            if (!/statuses\/\$artifact_sha/.test(text)) failures.push(`${writer}: missing provider status publication for required check context`);
+            if (!/context=aos-semantic-verifiers/.test(text)) failures.push(`${writer}: missing required status context`);
             if (!/git push origin HEAD:refs\/heads\/aos\/authority-artifacts\//.test(text)) failures.push(`${writer}: missing authority artifact branch push`);
             if (/git push origin HEAD:main/.test(text)) failures.push(`${writer}: forbidden direct main push`);
           }
