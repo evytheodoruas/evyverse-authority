@@ -27,6 +27,7 @@ on:
         required: true
 
 permissions:
+  actions: write
   contents: write
   id-token: write
   pull-requests: write
@@ -137,4 +138,10 @@ jobs:
             --head "$artifact_branch" \
             --title "Publish authority artifact ${{ inputs.target_path }}" \
             --body-file pr-body.md)"
+          gh api \
+            --method POST \
+            "repos/${{ github.repository }}/actions/workflows/aos-semantic-verifiers.yml/dispatches" \
+            --input - <<EOF
+          {"ref": "$artifact_branch"}
+          EOF
           gh pr merge --auto --merge "$pr_url"
