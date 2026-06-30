@@ -1,0 +1,5 @@
+providerRecord=https://github.com/evytheodoruas/agent-os/issues/266
+workflowRun=https://github.com/evytheodoruas/evyverse-authority/actions/runs/28414236494
+sourceRef=aos/candidates/local-auth-repair-v1-266
+sourcePath=lanes/local-auth-repair.v1.json
+grantRef=grants/authority-artifact-write.v1.json

@@ -1,0 +1,56 @@
+{
+  "schema": "agent_os.lane.v1",
+  "_template": "Capability lane template for repairing provider/tool auth without raw credential custody. Copy into evyverse-authority only through the signed authority workflow.",
+  "laneId": "github-local-auth-repair-v1",
+  "laneType": "github:local-auth-repair",
+  "providerAlias": "github",
+  "surfacePattern": "github/auth/*",
+  "bootstrapable": true,
+  "receipt": {
+    "kind": "github-provider-record-state-out",
+    "required": [
+      "provider-record",
+      "tool",
+      "runtime-identity",
+      "operation",
+      "scope-before",
+      "scope-after",
+      "readback"
+    ],
+    "forbidden": [
+      "raw access token",
+      "refresh token",
+      "private key",
+      "credential file contents"
+    ]
+  },
+  "readback": {
+    "commands": [
+      "gh auth status -h github.com",
+      "git ls-remote origin HEAD"
+    ],
+    "mustConfirm": [
+      "authenticated provider account",
+      "expected scopes without token material",
+      "plain git operation works without sandbox escalation"
+    ]
+  },
+  "redaction": {
+    "rules": [
+      "never print token values",
+      "never store local credential files",
+      "redact usernames only when they identify private third parties",
+      "store scope names and tool names only"
+    ],
+    "denyPatterns": [
+      "gh[pousr]_[A-Za-z0-9_]{20,}",
+      "github_pat_[A-Za-z0-9_]+",
+      "-----BEGIN .*PRIVATE KEY-----",
+      "refresh token values"
+    ]
+  },
+  "recovery": {
+    "posture": "abandon",
+    "command": "stop dependent provider action; restore prior redacted git credential helper configuration or revoke/narrow provider grant through provider-native UI"
+  }
+}
