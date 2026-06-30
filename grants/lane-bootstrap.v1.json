@@ -1,0 +1,14 @@
+{
+  "schema": "agent_os.grant.v1",
+  "grantId": "lane-bootstrap.v1",
+  "effectKinds": [
+    "lane-bootstrap"
+  ],
+  "scopePrefix": "*",
+  "executionMode": "unattended",
+  "provenance": {
+    "verifiedVia": "keyless-oidc",
+    "approval": "https://github.com/evytheodoruas/evyverse-authority/actions/runs/28413869413",
+    "proof": "https://github.com/evytheodoruas/agent-os/issues/266"
+  }
+}
