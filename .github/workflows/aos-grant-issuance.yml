@@ -25,6 +25,7 @@ permissions:
   contents: write
   id-token: write
   pull-requests: write
+  statuses: write
 
 jobs:
   issue-grant:
@@ -116,8 +117,10 @@ jobs:
           git config user.email "aos-grant-issuance@users.noreply.github.com"
           git add "$target" "grants/${{ inputs.grant_id }}.sigstore.json" "grants/${{ inputs.grant_id }}.receipt"
           git commit -m "issue signed grant ${{ inputs.grant_id }}"
+          grant_sha="$(git rev-parse HEAD)"
           git push origin HEAD:refs/heads/aos/grants/${{ inputs.grant_id }}-${{ github.run_id }}
           echo "grant_branch=$branch" >> "$GITHUB_ENV"
+          echo "grant_sha=$grant_sha" >> "$GITHUB_ENV"
 
       - name: Open grant PR and enable auto-merge
         shell: bash
@@ -146,4 +149,31 @@ jobs:
             --input - <<JSON
           {"ref": "$grant_branch"}
           JSON
+          verifier_url=""
+          conclusion=""
+          for attempt in {1..30}; do
+            checks="$(gh api "repos/${{ github.repository }}/commits/$grant_sha/check-runs?check_name=aos-semantic-verifiers")"
+            status="$(jq -r '.check_runs[0].status // ""' <<<"$checks")"
+            conclusion="$(jq -r '.check_runs[0].conclusion // ""' <<<"$checks")"
+            verifier_url="$(jq -r '.check_runs[0].html_url // ""' <<<"$checks")"
+            if [ "$status" = "completed" ] && [ "$conclusion" = "success" ]; then
+              break
+            fi
+            if [ "$status" = "completed" ] && [ "$conclusion" != "success" ]; then
+              echo "semantic verifier concluded $conclusion" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          if [ "$conclusion" != "success" ]; then
+            echo "semantic verifier did not finish successfully" >&2
+            exit 1
+          fi
+          gh api \
+            --method POST \
+            "repos/${{ github.repository }}/statuses/$grant_sha" \
+            -f state=success \
+            -f context=aos-semantic-verifiers \
+            -f target_url="$verifier_url" \
+            -f description="authority semantic verifier passed"
           gh pr merge --auto --merge "$pr_url"
