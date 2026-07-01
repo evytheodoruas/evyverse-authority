@@ -1,5 +1,5 @@
-providerRecord=https://github.com/evytheodoruas/agent-os/issues/265
-workflowRun=https://github.com/evytheodoruas/evyverse-authority/actions/runs/28412301058
-sourceRef=main
-sourcePath=root-doctrine.json
+providerRecord=https://github.com/evytheodoruas/agent-os/issues/328
+workflowRun=https://github.com/evytheodoruas/evyverse-authority/actions/runs/28510925004
+sourceRef=aos/r5-worktree-retire-authority-candidates-20260701032645
+sourcePath=work/r5-worktree-retire/root-doctrine.json
 grantRef=grants/authority-artifact-write.v1.json
