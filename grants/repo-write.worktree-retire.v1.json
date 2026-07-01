@@ -1,0 +1,14 @@
+{
+  "schema": "agent_os.grant.v1",
+  "grantId": "repo-write.worktree-retire.v1",
+  "effectKinds": [
+    "repo-write"
+  ],
+  "scopePrefix": "local/worktrees/",
+  "executionMode": "unattended",
+  "provenance": {
+    "verifiedVia": "keyless-oidc",
+    "approval": "https://github.com/evytheodoruas/evyverse-authority/actions/runs/28525963516",
+    "proof": "https://github.com/evytheodoruas/agent-os/issues/328"
+  }
+}
