@@ -1,0 +1,5 @@
+providerRecord=https://github.com/evytheodoruas/agent-os/issues/328
+workflowRun=https://github.com/evytheodoruas/evyverse-authority/actions/runs/28525963516
+grantId=repo-write.worktree-retire.v1
+effectKinds=repo-write
+scopePrefix=local/worktrees/

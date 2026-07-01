@@ -1,0 +1,59 @@
+{
+  "schema": "agent_os.lane.v1",
+  "_template": "Capability lane for bounded retirement of stale local agent-os worktrees. Copy into evyverse-authority only through the signed authority workflow.",
+  "laneId": "local-worktree-retire-v1",
+  "laneType": "local:repo-write",
+  "providerAlias": "local",
+  "surfacePattern": "local/worktrees/*",
+  "bootstrapable": true,
+  "receipt": {
+    "kind": "github-provider-state-out",
+    "required": [
+      "provider issue or PR proving worktree branch is merged, closed, or gone",
+      "pre-run git worktree list --porcelain",
+      "clean git status readback for every target",
+      "governed execution receipt",
+      "post-run git worktree list --porcelain",
+      "recovery command for each removed worktree"
+    ],
+    "forbidden": [
+      "raw local absolute paths in provider-visible comments",
+      "raw tokens",
+      "private key material",
+      "credential files"
+    ]
+  },
+  "readback": {
+    "commands": [
+      "git worktree list --porcelain",
+      "git -C <target> status --porcelain --untracked-files=all before removal",
+      "governedExecute receipt readback for each worktree-retire effect"
+    ],
+    "mustConfirm": [
+      "target path stayed under the declared worktree root",
+      "target branch provider state is merged, closed, or gone",
+      "worktree had no tracked or untracked local changes",
+      "post-run worktree list no longer contains the target alias"
+    ]
+  },
+  "redaction": {
+    "rules": [
+      "publish path aliases instead of full local absolute paths",
+      "publish branch names, provider records, receipt ids, and recovery commands only",
+      "never publish credential material or local tool auth files"
+    ],
+    "denyPatterns": [
+      "gh[pousr]_[A-Za-z0-9_]{20,}",
+      "github_pat_[A-Za-z0-9_]+",
+      "-----BEGIN .*PRIVATE KEY-----",
+      "AKIA[0-9A-Z]{16}",
+      "password\\s*[:=]",
+      "secret\\s*[:=]",
+      "token\\s*[:=]"
+    ]
+  },
+  "recovery": {
+    "posture": "restore-worktree",
+    "command": "git worktree add <path-alias> <branch> and restore any provider artifact named in the receipt"
+  }
+}
