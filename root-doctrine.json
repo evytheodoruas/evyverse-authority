@@ -1,6 +1,6 @@
 {
   "schema": "agent_os.root_doctrine.v1",
-  "version": "phase-0-authority-artifact-write",
+  "version": "r5-worktree-retire",
   "postures": {
     "autonomousEligible": [
       "lane-bootstrap",
@@ -30,6 +30,7 @@
     "revert",
     "close-pr",
     "rollback",
-    "revert-artifact"
+    "revert-artifact",
+    "restore-worktree"
   ]
 }
