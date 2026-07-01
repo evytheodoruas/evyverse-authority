@@ -1,0 +1,5 @@
+providerRecord=https://github.com/evytheodoruas/agent-os/issues/325
+workflowRun=https://github.com/evytheodoruas/evyverse-authority/actions/runs/28528115705
+sourceRef=aos/candidates/github-work-lane-auto-merge-v1-20260701
+sourcePath=candidates/github-work-lane-auto-merge-v1.json
+grantRef=grants/authority-artifact-write.v1.json

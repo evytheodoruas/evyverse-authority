@@ -1,0 +1,73 @@
+{
+  "schema": "agent_os.lane.v1",
+  "_template": "Capability lane template for GitHub work-lane PR auto-merge after provider readback proves PR and check safety. Copy into evyverse-authority only through the signed authority workflow.",
+  "laneId": "github-work-lane-auto-merge-v1",
+  "laneType": "github:repo-write",
+  "providerAlias": "github",
+  "surfacePattern": "github/work-lanes/*",
+  "bootstrapable": true,
+  "flow": [
+    "read-pr",
+    "read-checks",
+    "request-auto-merge",
+    "readback",
+    "state-out"
+  ],
+  "preconditions": {
+    "required": [
+      "provider-claim-present",
+      "pull-request-open-mergeable-not-draft",
+      "head-branch-matches-readback",
+      "base-branch-matches-readback",
+      "head-sha-matches-readback",
+      "required-checks-green",
+      "redaction-scan-satisfied"
+    ],
+    "forbidden": [
+      "draft pull request",
+      "non-green required check",
+      "head SHA drift",
+      "unbounded merge method",
+      "raw credential material"
+    ]
+  },
+  "receipt": {
+    "kind": "github-pr-auto-merge",
+    "records": [
+      "provider issue selecting the work",
+      "pull request number",
+      "head branch and head SHA",
+      "base branch",
+      "required check names and green status",
+      "provider auto-merge request result",
+      "post-request auto-merge readback"
+    ]
+  },
+  "readback": {
+    "commands": [
+      "gh pr view <pullRequestNumber> --repo <repository> --json state,isDraft,mergeable,headRefName,headRefOid,baseRefName,statusCheckRollup,autoMergeRequest"
+    ],
+    "mustConfirm": [
+      "pull request is open, mergeable, and not draft",
+      "headRefName and headRefOid match the recorded descriptor",
+      "all required checks are green",
+      "autoMergeRequest is present after request"
+    ]
+  },
+  "redaction": {
+    "rules": [
+      "record PR numbers, branch names, check names, merge method, and commit SHAs only",
+      "never print tokens, private keys, cookies, credential files, raw authorization headers, or raw provider response bodies"
+    ],
+    "denyPatterns": [
+      "gh[pousr]_[A-Za-z0-9_]{20,}",
+      "github_pat_[A-Za-z0-9_]+",
+      "-----BEGIN .*PRIVATE KEY-----",
+      "Authorization:\\s*Bearer\\s+"
+    ]
+  },
+  "recovery": {
+    "posture": "disable-auto-merge",
+    "command": "gh pr merge --disable-auto <pullRequestNumber> --repo <repository>"
+  }
+}
