@@ -1,0 +1,46 @@
+{
+  "schema": "agent_os.lane.v1",
+  "laneId": "estate-gate-sm-webhook-v1-lane",
+  "laneType": "github:provider-write",
+  "providerAlias": "github",
+  "surfacePattern": "github/repositories/evytheodoruas/pdx-apps-script-sm-webhook/rulesets/evyverse-estate-gate-v1",
+  "bootstrapable": true,
+  "receipt": {
+    "kind": "github-repository-ruleset-upsert",
+    "records": [
+      "provider issue selecting the bootstrap",
+      "target repository",
+      "ruleset name",
+      "created or updated ruleset id",
+      "post-upsert readback"
+    ]
+  },
+  "readback": {
+    "commands": [
+      "gh api repos/<owner>/<repo>/rulesets",
+      "gh api repos/<owner>/<repo>/rulesets/<ruleset_id>"
+    ],
+    "mustConfirm": [
+      "ruleset exists after upsert",
+      "ruleset target is branch",
+      "ruleset enforcement is active",
+      "required estate gate and redaction checks are present"
+    ]
+  },
+  "redaction": {
+    "rules": [
+      "record repository names, ruleset names, ruleset ids, branch patterns, check names, integration ids, and commit SHAs only",
+      "never print tokens, private keys, cookies, credential files, raw authorization headers, or raw provider response bodies"
+    ],
+    "denyPatterns": [
+      "gh[pousr]_[A-Za-z0-9_]{20,}",
+      "github_pat_[A-Za-z0-9_]+",
+      "-----BEGIN .*PRIVATE KEY-----",
+      "Authorization:\\s*Bearer\\s+"
+    ]
+  },
+  "recovery": {
+    "posture": "rollback",
+    "command": "delete created ruleset or restore captured prior ruleset JSON through the same governed lane"
+  }
+}
