@@ -1,0 +1,5 @@
+providerRecord=https://github.com/evytheodoruas/agent-os/issues/364#issuecomment-4861663119
+workflowRun=https://github.com/evytheodoruas/evyverse-authority/actions/runs/28561276957
+sourceRef=aos/lane-bootstrap/estate-gate-sm-webhook-v1-1782959582753
+sourcePath=lanes/estate-gate-sm-webhook-v1-lane.json
+grantRef=grants/authority-artifact-write.v1.json
