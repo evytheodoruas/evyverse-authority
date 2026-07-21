@@ -1,0 +1,217 @@
+name: One-time GAS estate default-branch rulesets
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: gas-estate-default-branch-rulesets
+  cancel-in-progress: false
+
+jobs:
+  create-rulesets:
+    name: Create and verify fixed repository rulesets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: root-authority
+    env:
+      ROOT_AUTH: ${{ secrets.GAS_ESTATE_RULESET_ADMIN }}
+    steps:
+      - name: Preflight, create, read back, and roll back on failure
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+
+          readonly owner="evytheodoruas"
+          readonly ruleset_name="gas-estate-default-branch-protection"
+          readonly -a repos=(
+            "pdx-apps-script-dispatch-and-scheduling-library"
+            "pdx-apps-script-core-weekly-coaching"
+            "pdx-apps-script-admin-contact-info"
+            "pdx-apps-script-pdx-labor-sheet"
+            "pdx-apps-script-hou-labor-sheet"
+            "pdx-apps-script-contact-updater-library"
+            "pdx-apps-script-lead-intake"
+            "pdx-apps-script-tsheets-api"
+            "pdx-apps-script-mailers"
+            "pdx-apps-script-business-analysis"
+            "pdx-apps-script-historical-source-resolver"
+          )
+
+          if [[ -z "${ROOT_AUTH:-}" ]]; then
+            echo "::error::The root-authority credential is unavailable."
+            exit 1
+          fi
+
+          api() {
+            local method="$1"
+            local endpoint="$2"
+            shift 2
+            curl --silent --show-error --fail-with-body \
+              --request "$method" \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${ROOT_AUTH}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com${endpoint}" \
+              "$@"
+          }
+
+          fail() {
+            echo "::error::$*"
+            return 1
+          }
+
+          created=()
+          completed=false
+
+          finish() {
+            local status="$?"
+            local rollback_failed=false
+            trap - EXIT
+            set +e
+
+            if [[ "$completed" != true && ${#created[@]} -gt 0 ]]; then
+              echo "A failure occurred; deleting only rulesets created by this run."
+              for ((index=${#created[@]} - 1; index >= 0; index--)); do
+                IFS=: read -r repo ruleset_id <<< "${created[$index]}"
+                if api DELETE "/repos/${owner}/${repo}/rulesets/${ruleset_id}" >/dev/null 2>&1; then
+                  echo "rollback repo=${repo} ruleset_id=${ruleset_id} result=deleted"
+                else
+                  echo "::error::rollback repo=${repo} ruleset_id=${ruleset_id} result=failed"
+                  rollback_failed=true
+                fi
+              done
+            fi
+
+            if [[ "$rollback_failed" == true ]]; then
+              status=1
+            fi
+            exit "$status"
+          }
+
+          trap finish EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          payload="$({
+            jq -cn --arg name "$ruleset_name" '
+              {
+                name: $name,
+                target: "branch",
+                enforcement: "active",
+                bypass_actors: [],
+                conditions: {
+                  ref_name: {
+                    include: ["~DEFAULT_BRANCH"],
+                    exclude: []
+                  }
+                },
+                rules: [
+                  {type: "deletion"},
+                  {type: "non_fast_forward"},
+                  {
+                    type: "pull_request",
+                    parameters: {
+                      allowed_merge_methods: ["merge", "squash", "rebase"],
+                      dismiss_stale_reviews_on_push: true,
+                      require_code_owner_review: false,
+                      require_last_push_approval: true,
+                      required_approving_review_count: 1,
+                      required_review_thread_resolution: true,
+                      required_reviewers: []
+                    }
+                  }
+                ]
+              }
+            '
+          })"
+
+          echo "Preflighting all fixed repositories before any mutation."
+          for repo in "${repos[@]}"; do
+            repo_readback="$(api GET "/repos/${owner}/${repo}")"
+            default_branch="$(jq -r '.default_branch' <<< "$repo_readback")"
+            [[ "$default_branch" == "main" ]] || fail "${repo}: default branch drifted from main."
+
+            branch_readback="$(api GET "/repos/${owner}/${repo}/branches/${default_branch}")"
+            [[ "$(jq -r '.protected' <<< "$branch_readback")" == "false" ]] || \
+              fail "${repo}: default branch is already protected; refusing a conflicting rule."
+
+            rulesets_readback="$(api GET "/repos/${owner}/${repo}/rulesets?includes_parents=true")"
+            [[ "$(jq 'length' <<< "$rulesets_readback")" == "0" ]] || \
+              fail "${repo}: an existing ruleset is present; refusing a conflicting rule."
+
+            head_sha="$(jq -r '.commit.sha' <<< "$branch_readback")"
+            echo "preflight repo=${repo} default_branch=${default_branch} head=${head_sha} protected=false rulesets=0"
+          done
+
+          receipts=()
+          for repo in "${repos[@]}"; do
+            branch_readback="$(api GET "/repos/${owner}/${repo}/branches/main")"
+            [[ "$(jq -r '.protected' <<< "$branch_readback")" == "false" ]] || \
+              fail "${repo}: protection changed after preflight; refusing to create."
+
+            rulesets_readback="$(api GET "/repos/${owner}/${repo}/rulesets?includes_parents=true")"
+            [[ "$(jq 'length' <<< "$rulesets_readback")" == "0" ]] || \
+              fail "${repo}: rulesets changed after preflight; refusing to create."
+
+            create_readback="$(
+              api POST "/repos/${owner}/${repo}/rulesets" \
+                --header "Content-Type: application/json" \
+                --data "$payload"
+            )"
+            ruleset_id="$(jq -r '.id' <<< "$create_readback")"
+            [[ "$ruleset_id" =~ ^[0-9]+$ ]] || fail "${repo}: create response omitted a numeric ruleset ID."
+            created+=("${repo}:${ruleset_id}")
+
+            exact_readback="$(api GET "/repos/${owner}/${repo}/rulesets/${ruleset_id}")"
+            jq -e --arg name "$ruleset_name" '
+              .name == $name and
+              .target == "branch" and
+              .enforcement == "active" and
+              .bypass_actors == [] and
+              .conditions.ref_name.include == ["~DEFAULT_BRANCH"] and
+              .conditions.ref_name.exclude == [] and
+              (.rules | length) == 3 and
+              ([.rules[].type] | sort) == (["deletion", "non_fast_forward", "pull_request"] | sort) and
+              ([.rules[] | select(.type == "required_status_checks")] | length) == 0 and
+              ([.rules[] | select(.type == "pull_request")] | length) == 1 and
+              ([.rules[] | select(.type == "pull_request")][0].parameters |
+                (.allowed_merge_methods | sort) == (["merge", "squash", "rebase"] | sort) and
+                .dismiss_stale_reviews_on_push == true and
+                .require_code_owner_review == false and
+                .require_last_push_approval == true and
+                .required_approving_review_count == 1 and
+                .required_review_thread_resolution == true and
+                .required_reviewers == [])
+            ' <<< "$exact_readback" >/dev/null || fail "${repo}: exact ruleset readback did not match the requested policy."
+
+            receipt="$(
+              jq -c --arg repo "$repo" '
+                {
+                  repo: $repo,
+                  ruleset_id: .id,
+                  name,
+                  target,
+                  enforcement,
+                  bypass_actors,
+                  conditions,
+                  rules
+                }
+              ' <<< "$exact_readback"
+            )"
+            receipts+=("$receipt")
+            echo "created repo=${repo} ruleset_id=${ruleset_id} readback=PASS"
+          done
+
+          {
+            echo "## Exact created-ruleset readback"
+            echo
+            echo '```json'
+            printf '%s\n' "${receipts[@]}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          printf 'ruleset_readback=%s\n' "${receipts[@]}"
+          completed=true
