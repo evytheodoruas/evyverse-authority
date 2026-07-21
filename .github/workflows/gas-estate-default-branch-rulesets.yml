@@ -25,7 +25,7 @@ jobs:
           set +x
 
           readonly owner="evytheodoruas"
-          readonly ruleset_name="gas-estate-default-branch-protection"
+          readonly ruleset_name="gas-estate-default-branch-protection-${GITHUB_RUN_ID}"
           readonly -a repos=(
             "pdx-apps-script-dispatch-and-scheduling-library"
             "pdx-apps-script-core-weekly-coaching"
@@ -64,6 +64,7 @@ jobs:
           }
 
           created=()
+          declare -A created_by_repo=()
           completed=false
 
           finish() {
@@ -76,8 +77,12 @@ jobs:
               echo "A failure occurred; deleting only rulesets created by this run."
               for ((index=${#created[@]} - 1; index >= 0; index--)); do
                 IFS=: read -r repo ruleset_id <<< "${created[$index]}"
-                if api DELETE "/repos/${owner}/${repo}/rulesets/${ruleset_id}" >/dev/null 2>&1; then
-                  echo "rollback repo=${repo} ruleset_id=${ruleset_id} result=deleted"
+                if api DELETE "/repos/${owner}/${repo}/rulesets/${ruleset_id}" >/dev/null 2>&1 &&
+                  remaining_rulesets="$(api GET "/repos/${owner}/${repo}/rulesets?includes_parents=true" 2>/dev/null)" &&
+                  jq -e --arg id "$ruleset_id" '
+                    all(.[]; (.id | tostring) != $id)
+                  ' <<< "$remaining_rulesets" >/dev/null; then
+                  echo "rollback repo=${repo} ruleset_id=${ruleset_id} result=deleted_and_absent"
                 else
                   echo "::error::rollback repo=${repo} ruleset_id=${ruleset_id} result=failed"
                   rollback_failed=true
@@ -128,6 +133,64 @@ jobs:
             '
           })"
 
+          verify_exact_readback() {
+            local readback="$1"
+            jq -e --arg name "$ruleset_name" '
+              .name == $name and
+              .target == "branch" and
+              .enforcement == "active" and
+              .bypass_actors == [] and
+              .conditions.ref_name.include == ["~DEFAULT_BRANCH"] and
+              .conditions.ref_name.exclude == [] and
+              (.rules | length) == 3 and
+              ([.rules[].type] | sort) == (["deletion", "non_fast_forward", "pull_request"] | sort) and
+              ([.rules[] | select(.type == "required_status_checks")] | length) == 0 and
+              ([.rules[] | select(.type == "pull_request")] | length) == 1 and
+              ([.rules[] | select(.type == "pull_request")][0].parameters |
+                (.allowed_merge_methods | sort) == (["merge", "squash", "rebase"] | sort) and
+                .dismiss_stale_reviews_on_push == true and
+                .require_code_owner_review == false and
+                .require_last_push_approval == true and
+                .required_approving_review_count == 1 and
+                .required_review_thread_resolution == true and
+                .required_reviewers == [])
+            ' <<< "$readback" >/dev/null
+          }
+
+          echo "Reconciling any incomplete earlier attempt of this workflow run."
+          recovery_rulesets=()
+          for repo in "${repos[@]}"; do
+            repo_readback="$(api GET "/repos/${owner}/${repo}")"
+            [[ "$(jq -r '.default_branch' <<< "$repo_readback")" == "main" ]] || \
+              fail "${repo}: default branch drifted from main before recovery preflight."
+
+            rulesets_readback="$(api GET "/repos/${owner}/${repo}/rulesets?includes_parents=true")"
+            mapfile -t prior_run_ids < <(
+              jq -r --arg name "$ruleset_name" '.[] | select(.name == $name) | .id' <<< "$rulesets_readback"
+            )
+            [[ "$(jq 'length' <<< "$rulesets_readback")" == "${#prior_run_ids[@]}" ]] || \
+              fail "${repo}: a non-run-marked ruleset exists; refusing recovery or creation."
+            [[ ${#prior_run_ids[@]} -le 1 ]] || \
+              fail "${repo}: multiple run-marked rulesets exist; refusing an ambiguous recovery."
+
+            if [[ ${#prior_run_ids[@]} -eq 1 ]]; then
+              prior_run_id="${prior_run_ids[0]}"
+              exact_readback="$(api GET "/repos/${owner}/${repo}/rulesets/${prior_run_id}")"
+              verify_exact_readback "$exact_readback" || \
+                fail "${repo}: prior run-marked ruleset has an unexpected policy; refusing recovery."
+              recovery_rulesets+=("${repo}:${prior_run_id}")
+            fi
+          done
+
+          for recovery_entry in "${recovery_rulesets[@]}"; do
+            IFS=: read -r repo ruleset_id <<< "$recovery_entry"
+            api DELETE "/repos/${owner}/${repo}/rulesets/${ruleset_id}" >/dev/null
+            rulesets_readback="$(api GET "/repos/${owner}/${repo}/rulesets?includes_parents=true")"
+            [[ "$(jq 'length' <<< "$rulesets_readback")" == "0" ]] || \
+              fail "${repo}: prior-attempt recovery did not restore an empty ruleset inventory."
+            echo "recovery repo=${repo} ruleset_id=${ruleset_id} result=deleted_and_absent"
+          done
+
           echo "Preflighting all fixed repositories before any mutation."
           for repo in "${repos[@]}"; do
             repo_readback="$(api GET "/repos/${owner}/${repo}")"
@@ -148,6 +211,10 @@ jobs:
 
           receipts=()
           for repo in "${repos[@]}"; do
+            repo_readback="$(api GET "/repos/${owner}/${repo}")"
+            [[ "$(jq -r '.default_branch' <<< "$repo_readback")" == "main" ]] || \
+              fail "${repo}: default branch changed after preflight; refusing to create."
+
             branch_readback="$(api GET "/repos/${owner}/${repo}/branches/main")"
             [[ "$(jq -r '.protected' <<< "$branch_readback")" == "false" ]] || \
               fail "${repo}: protection changed after preflight; refusing to create."
@@ -156,36 +223,60 @@ jobs:
             [[ "$(jq 'length' <<< "$rulesets_readback")" == "0" ]] || \
               fail "${repo}: rulesets changed after preflight; refusing to create."
 
-            create_readback="$(
+            if create_readback="$(
               api POST "/repos/${owner}/${repo}/rulesets" \
                 --header "Content-Type: application/json" \
-                --data "$payload"
-            )"
-            ruleset_id="$(jq -r '.id' <<< "$create_readback")"
-            [[ "$ruleset_id" =~ ^[0-9]+$ ]] || fail "${repo}: create response omitted a numeric ruleset ID."
+                --data "$payload" 2>/dev/null
+            )"; then
+              create_status=0
+            else
+              create_status=$?
+            fi
+
+            ruleset_id="$(jq -r '.id // empty' <<< "$create_readback" 2>/dev/null || true)"
+            if [[ ! "$ruleset_id" =~ ^[0-9]+$ ]]; then
+              recovered_ids=()
+              for recovery_attempt in 1 2 3; do
+                rulesets_readback="$(api GET "/repos/${owner}/${repo}/rulesets?includes_parents=true")"
+                mapfile -t recovered_ids < <(
+                  jq -r --arg name "$ruleset_name" '.[] | select(.name == $name) | .id' <<< "$rulesets_readback"
+                )
+                [[ ${#recovered_ids[@]} -gt 0 ]] && break
+                sleep 1
+              done
+
+              [[ ${#recovered_ids[@]} -le 1 ]] || \
+                fail "${repo}: multiple run-marked rulesets appeared after an ambiguous create; refusing an unsafe deletion."
+              [[ ${#recovered_ids[@]} -eq 1 ]] || \
+                fail "${repo}: create response was ambiguous and no run-marked ruleset was observed."
+
+              ruleset_id="${recovered_ids[0]}"
+              created+=("${repo}:${ruleset_id}")
+              created_by_repo["$repo"]="$ruleset_id"
+              exact_readback="$(api GET "/repos/${owner}/${repo}/rulesets/${ruleset_id}")"
+              verify_exact_readback "$exact_readback" || \
+                fail "${repo}: recovered run-marked ruleset did not match the requested policy."
+              fail "${repo}: create response was ambiguous; recovered ruleset ${ruleset_id} will be rolled back."
+            fi
+
             created+=("${repo}:${ruleset_id}")
+            created_by_repo["$repo"]="$ruleset_id"
+            [[ "$create_status" == "0" ]] || \
+              fail "${repo}: create failed after returning a ruleset ID; rolling back."
 
             exact_readback="$(api GET "/repos/${owner}/${repo}/rulesets/${ruleset_id}")"
-            jq -e --arg name "$ruleset_name" '
-              .name == $name and
-              .target == "branch" and
-              .enforcement == "active" and
-              .bypass_actors == [] and
-              .conditions.ref_name.include == ["~DEFAULT_BRANCH"] and
-              .conditions.ref_name.exclude == [] and
-              (.rules | length) == 3 and
-              ([.rules[].type] | sort) == (["deletion", "non_fast_forward", "pull_request"] | sort) and
-              ([.rules[] | select(.type == "required_status_checks")] | length) == 0 and
-              ([.rules[] | select(.type == "pull_request")] | length) == 1 and
-              ([.rules[] | select(.type == "pull_request")][0].parameters |
-                (.allowed_merge_methods | sort) == (["merge", "squash", "rebase"] | sort) and
-                .dismiss_stale_reviews_on_push == true and
-                .require_code_owner_review == false and
-                .require_last_push_approval == true and
-                .required_approving_review_count == 1 and
-                .required_review_thread_resolution == true and
-                .required_reviewers == [])
-            ' <<< "$exact_readback" >/dev/null || fail "${repo}: exact ruleset readback did not match the requested policy."
+            verify_exact_readback "$exact_readback" || \
+              fail "${repo}: exact ruleset readback did not match the requested policy."
+
+            repo_readback="$(api GET "/repos/${owner}/${repo}")"
+            [[ "$(jq -r '.default_branch' <<< "$repo_readback")" == "main" ]] || \
+              fail "${repo}: default branch changed during creation; rolling back."
+
+            rulesets_readback="$(api GET "/repos/${owner}/${repo}/rulesets?includes_parents=true")"
+            jq -e --arg id "$ruleset_id" '
+              length == 1 and (.[0].id | tostring) == $id
+            ' <<< "$rulesets_readback" >/dev/null || \
+              fail "${repo}: post-create ruleset inventory was not the exact singleton created by this run."
 
             receipt="$(
               jq -c --arg repo "$repo" '
@@ -203,6 +294,24 @@ jobs:
             )"
             receipts+=("$receipt")
             echo "created repo=${repo} ruleset_id=${ruleset_id} readback=PASS"
+          done
+
+          echo "Performing final all-repository collision and default-branch readback."
+          for repo in "${repos[@]}"; do
+            ruleset_id="${created_by_repo[$repo]}"
+            repo_readback="$(api GET "/repos/${owner}/${repo}")"
+            [[ "$(jq -r '.default_branch' <<< "$repo_readback")" == "main" ]] || \
+              fail "${repo}: default branch changed before final readback; rolling back."
+
+            rulesets_readback="$(api GET "/repos/${owner}/${repo}/rulesets?includes_parents=true")"
+            jq -e --arg id "$ruleset_id" '
+              length == 1 and (.[0].id | tostring) == $id
+            ' <<< "$rulesets_readback" >/dev/null || \
+              fail "${repo}: final ruleset inventory was not the exact singleton created by this run."
+
+            exact_readback="$(api GET "/repos/${owner}/${repo}/rulesets/${ruleset_id}")"
+            verify_exact_readback "$exact_readback" || \
+              fail "${repo}: final exact ruleset policy readback failed."
           done
 
           {
